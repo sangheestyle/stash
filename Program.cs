@@ -4,8 +4,10 @@
 using System;
 using System.Linq;
 using System.Net.Http;
+using System.Net.NetworkInformation;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json.Linq;
@@ -28,15 +30,30 @@ namespace HttpClientFactorySample
             Configure(serviceCollection);
 
             var services = serviceCollection.BuildServiceProvider();
-            foreach(var i in Enumerable.Range(0, 5)) {
-                Run(services, i).GetAwaiter().GetResult();
+            Task[] tasks = new Task[5];
+            for (int i = 0; i < tasks.Length; i++) {
+                tasks[i] = Run(services, i);
             }
+
+            Console.WriteLine("Waiting for {0} tasks", tasks.Length);
+            var addresses = (from a in System.Net.Dns.GetHostAddresses("api.github.com") select a.ToString()).ToArray();
+            Console.WriteLine("addresses: {0}", addresses);
+            var properties = IPGlobalProperties.GetIPGlobalProperties();
+            var httpConnections = (from connection in properties.GetActiveTcpConnections()
+                                where connection.RemoteEndPoint.ToString().StartsWith(addresses[0].Substring(0, 10))
+                                select connection);
+            foreach(var c in httpConnections) {
+                Console.WriteLine("{0} <==> {1}", c.LocalEndPoint.ToString(), c.RemoteEndPoint.ToString());
+            }
+            Console.WriteLine("num conn: {0}", httpConnections.Count());
+            Task.WaitAll(tasks);
         }
 
         public static async Task Run(ServiceProvider services, int number)
         {
             Console.WriteLine("Creating a client... {0}", number);
             var github = services.GetRequiredService<GithubClient>();
+            Console.WriteLine("base address: {0}", github.HttpClient.DefaultRequestHeaders.Host);
             Console.WriteLine("Sending a request... {0}", number);
             var response = await github.GetJson();
 
